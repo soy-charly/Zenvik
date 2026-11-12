@@ -237,6 +237,70 @@ fn compiles_multiple_source_files_together() {
 }
 
 #[test]
+fn imports_relative_modules_transitively_and_only_once() {
+    let directory = TestDirectory::new();
+    let modules = directory.file("module sources");
+    fs::create_dir_all(modules.join("lib")).unwrap();
+    let common = modules.join("common.zenvik");
+    let library = modules.join("lib/tools.zenvik");
+    let source = modules.join("main.zenvik");
+    let executable = directory.file("imported-program");
+    fs::write(
+        &common,
+        "print(\"common loaded\");\ndef twice(value) {\n    return value * 2;\n}\n",
+    )
+    .unwrap();
+    fs::write(
+        &library,
+        "import \"../common.zenvik\";\ndef add_one(value) {\n    return value + 1;\n}\n",
+    )
+    .unwrap();
+    fs::write(
+        &source,
+        "import \"lib/tools.zenvik\";\nimport \"common.zenvik\";\nprint(twice(add_one(20)));\n",
+    )
+    .unwrap();
+
+    let compilation = zenvik(&[arg(&source), OsStrExt::as_os_str("-o"), arg(&executable)]);
+    assert!(
+        compilation.status.success(),
+        "{}",
+        String::from_utf8_lossy(&compilation.stderr)
+    );
+    let execution = Command::new(executable).output().unwrap();
+    assert!(execution.status.success());
+    assert_eq!(
+        String::from_utf8_lossy(&execution.stdout).trim(),
+        "common loaded\n42"
+    );
+}
+
+#[test]
+fn reports_import_cycles_and_rejects_nested_imports() {
+    let directory = TestDirectory::new();
+    let first = directory.file("first.zenvik");
+    let second = directory.file("second.zenvik");
+    let missing = directory.file("missing-import.zenvik");
+    fs::write(&missing, "import \"not-found.zenvik\";\n").unwrap();
+    let output = zenvik(&[arg(&missing)]);
+    assert_eq!(output.status.code(), Some(2));
+    assert!(String::from_utf8_lossy(&output.stderr).contains("cannot import `not-found.zenvik`"));
+
+    fs::write(&first, "import \"second.zenvik\";\n").unwrap();
+    fs::write(&second, "import \"first.zenvik\";\n").unwrap();
+    let output = zenvik(&[arg(&first)]);
+    assert_eq!(output.status.code(), Some(2));
+    assert!(String::from_utf8_lossy(&output.stderr).contains("import cycle"));
+
+    fs::write(&first, "if True {\n    import \"second.zenvik\";\n}\n").unwrap();
+    let output = zenvik(&[OsStrExt::as_os_str("-fsyntax-only"), arg(&first)]);
+    assert_eq!(output.status.code(), Some(2));
+    assert!(
+        String::from_utf8_lossy(&output.stderr).contains("imports are only supported at top level")
+    );
+}
+
+#[test]
 fn evaluates_operands_left_to_right_and_compares_types_correctly() {
     let directory = TestDirectory::new();
     let source = directory.file("evaluation.zenvik");
@@ -269,6 +333,112 @@ print(5.5 % 2.0);
     assert_eq!(
         String::from_utf8_lossy(&execution.stdout).trim(),
         "left\nright\n4\nFalse\n1.5"
+    );
+}
+
+#[test]
+fn evaluates_power_with_correct_precedence_associativity_and_integer_precision() {
+    let directory = TestDirectory::new();
+    let source = directory.file("power.zenvik");
+    let executable = directory.file("power");
+    fs::write(
+        &source,
+        "print(-2 ** 2);\nprint(2 ** 3 ** 2);\nprint(3 ** 40);\nprint(2 ** -2);\n",
+    )
+    .unwrap();
+    let compilation = zenvik(&[arg(&source), OsStrExt::as_os_str("-o"), arg(&executable)]);
+    assert!(
+        compilation.status.success(),
+        "{}",
+        String::from_utf8_lossy(&compilation.stderr)
+    );
+    let execution = Command::new(executable).output().unwrap();
+    assert!(execution.status.success());
+    assert_eq!(
+        String::from_utf8_lossy(&execution.stdout).trim(),
+        "-4\n512\n12157665459056928801\n0.25"
+    );
+}
+
+#[test]
+fn compares_large_integers_to_floats_without_losing_precision() {
+    let directory = TestDirectory::new();
+    let source = directory.file("mixed-numeric-comparisons.zenvik");
+    let executable = directory.file("mixed-numeric-comparisons");
+    fs::write(
+        &source,
+        "print(9007199254740993 == 9007199254740992.0);\nprint(9007199254740993 > 9007199254740992.0);\nprint(9007199254740991 < 9007199254740992.0);\n",
+    )
+    .unwrap();
+    let compilation = zenvik(&[arg(&source), OsStrExt::as_os_str("-o"), arg(&executable)]);
+    assert!(
+        compilation.status.success(),
+        "{}",
+        String::from_utf8_lossy(&compilation.stderr)
+    );
+    let execution = Command::new(executable).output().unwrap();
+    assert!(execution.status.success());
+    assert_eq!(
+        String::from_utf8_lossy(&execution.stdout).trim(),
+        "False\nTrue\nTrue"
+    );
+}
+
+#[test]
+fn rejects_trailing_characters_in_numeric_string_conversions() {
+    let directory = TestDirectory::new();
+    let source = directory.file("invalid-conversion.zenvik");
+    let executable = directory.file("invalid-conversion");
+    fs::write(&source, "print(int(\"12xyz\"));\n").unwrap();
+    let compilation = zenvik(&[arg(&source), OsStrExt::as_os_str("-o"), arg(&executable)]);
+    assert!(
+        compilation.status.success(),
+        "{}",
+        String::from_utf8_lossy(&compilation.stderr)
+    );
+    let execution = Command::new(&executable).output().unwrap();
+    assert_eq!(execution.status.code(), Some(1));
+    assert!(String::from_utf8_lossy(&execution.stderr).contains("invalid integer conversion"));
+
+    fs::write(&source, "print(float(\"3.5tail\"));\n").unwrap();
+    let compilation = zenvik(&[arg(&source), OsStrExt::as_os_str("-o"), arg(&executable)]);
+    assert!(compilation.status.success());
+    let execution = Command::new(&executable).output().unwrap();
+    assert_eq!(execution.status.code(), Some(1));
+    assert!(String::from_utf8_lossy(&execution.stderr).contains("invalid numeric conversion"));
+}
+
+#[test]
+fn preserves_nul_followed_by_octal_digit_in_generated_cpp_strings() {
+    let directory = TestDirectory::new();
+    let source = directory.file("nul-string.zenvik");
+    let executable = directory.file("nul-string");
+    fs::write(&source, "print(len(\"\\07\"));\n").unwrap();
+    let compilation = zenvik(&[arg(&source), OsStrExt::as_os_str("-o"), arg(&executable)]);
+    assert!(
+        compilation.status.success(),
+        "{}",
+        String::from_utf8_lossy(&compilation.stderr)
+    );
+    let execution = Command::new(executable).output().unwrap();
+    assert!(execution.status.success());
+    assert_eq!(String::from_utf8_lossy(&execution.stdout).trim(), "2");
+}
+
+#[test]
+fn rejects_function_definitions_inside_top_level_control_blocks() {
+    let directory = TestDirectory::new();
+    let source = directory.file("nested-function.zenvik");
+    fs::write(
+        &source,
+        "if True {\n    def hidden() {\n        return 1;\n    }\n}\n",
+    )
+    .unwrap();
+    let output = zenvik(&[OsStrExt::as_os_str("-fsyntax-only"), arg(&source)]);
+    assert_eq!(output.status.code(), Some(2));
+    assert!(
+        String::from_utf8_lossy(&output.stderr)
+            .contains("function definitions must be at top level")
     );
 }
 

@@ -31,6 +31,7 @@ pub fn check(statements: &[Stmt]) -> Result<(), String> {
     let mut checker = Checker {
         functions: &functions,
         function_depth: 0,
+        control_depth: 0,
         loop_depth: 0,
     };
     checker.statements(statements)
@@ -39,13 +40,27 @@ pub fn check(statements: &[Stmt]) -> Result<(), String> {
 struct Checker<'a> {
     functions: &'a HashSet<&'a String>,
     function_depth: usize,
+    control_depth: usize,
     loop_depth: usize,
 }
 
 impl Checker<'_> {
+    fn control_statements(&mut self, statements: &[Stmt]) -> Result<(), String> {
+        self.control_depth += 1;
+        let result = self.statements(statements);
+        self.control_depth -= 1;
+        result
+    }
+
     fn statements(&mut self, statements: &[Stmt]) -> Result<(), String> {
         for statement in statements {
             match &statement.kind {
+                StmtKind::Import(_) => {
+                    return Err(diagnostic(
+                        &statement.position,
+                        "imports are only supported at top level".into(),
+                    ));
+                }
                 StmtKind::Expr(expression) => self.expression(expression)?,
                 StmtKind::Assign { value, .. } => self.expression(value)?,
                 StmtKind::If {
@@ -54,20 +69,20 @@ impl Checker<'_> {
                 } => {
                     for (condition, body) in branches {
                         self.expression(condition)?;
-                        self.statements(body)?;
+                        self.control_statements(body)?;
                     }
-                    self.statements(otherwise)?;
+                    self.control_statements(otherwise)?;
                 }
                 StmtKind::While { condition, body } => {
                     self.expression(condition)?;
                     self.loop_depth += 1;
-                    self.statements(body)?;
+                    self.control_statements(body)?;
                     self.loop_depth -= 1;
                 }
                 StmtKind::For { iterable, body, .. } => {
                     self.expression(iterable)?;
                     self.loop_depth += 1;
-                    self.statements(body)?;
+                    self.control_statements(body)?;
                     self.loop_depth -= 1;
                 }
                 StmtKind::Function { body, .. } => {
@@ -75,6 +90,12 @@ impl Checker<'_> {
                         return Err(diagnostic(
                             &statement.position,
                             "nested function definitions are not supported".into(),
+                        ));
+                    }
+                    if self.control_depth > 0 {
+                        return Err(diagnostic(
+                            &statement.position,
+                            "function definitions must be at top level".into(),
                         ));
                     }
                     self.function_depth += 1;

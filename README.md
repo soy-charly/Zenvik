@@ -28,6 +28,8 @@ cargo build --release
 cargo test
 ./target/release/zenvik examples/factorial.zenvik -o out/factorial
 ./out/factorial
+./target/release/zenvik examples/modules/main.zenvik -o out/modules
+./out/modules
 ```
 
 To install the release binary to `/usr/local/bin/zenvik`, run:
@@ -49,6 +51,8 @@ Windows:
 On Windows, install the prerequisites and install Zenvik with `cargo install --path . --locked`. See the [installation guide](docs/installation.md#windows) for the C++ toolchain setup and PowerShell example.
 
 See the [CLI reference](docs/cli-reference.md) for available options and [examples/](examples/) for more programs.
+
+Source files can import other `.zenvik` files with `import "relative/path.zenvik";`. See [the module example](examples/modules/main.zenvik) and its [imported file](examples/modules/greetings.zenvik).
 
 ## Example
 

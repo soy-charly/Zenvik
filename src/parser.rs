@@ -23,6 +23,18 @@ impl Parser {
 
     fn statement(&mut self) -> Result<Stmt, String> {
         let position = self.current().position.clone();
+        if self.keyword("import") {
+            self.advance();
+            let token = self.advance().clone();
+            let TokenKind::String(path) = token.kind else {
+                return Err(self.error_at(token.position, "expected a quoted import path".into()));
+            };
+            self.finish_simple_statement()?;
+            return Ok(Stmt {
+                kind: StmtKind::Import(path),
+                position,
+            });
+        }
         if self.keyword("def") {
             return self.function(position);
         }
@@ -217,7 +229,12 @@ impl Parser {
             }
             let position = left.position.clone();
             self.advance();
-            let right = self.expression(precedence + 1)?;
+            let right_precedence = if operator == "**" {
+                precedence
+            } else {
+                precedence + 1
+            };
+            let right = self.expression(right_precedence)?;
             left = Expr {
                 kind: ExprKind::Binary {
                     left: Box::new(left),
@@ -239,14 +256,14 @@ impl Parser {
             TokenKind::Name(name) if name == "False" => ExprKind::Bool(false),
             TokenKind::Name(name) if name == "None" => ExprKind::None,
             TokenKind::Name(name) if name == "not" => {
-                let operand = self.expression(8)?;
+                let operand = self.expression(6)?;
                 ExprKind::Unary {
                     operator: name,
                     operand: Box::new(operand),
                 }
             }
             TokenKind::Operator(operator) if matches!(operator.as_str(), "-" | "+") => {
-                let operand = self.expression(8)?;
+                let operand = self.expression(6)?;
                 ExprKind::Unary {
                     operator,
                     operand: Box::new(operand),

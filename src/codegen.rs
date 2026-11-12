@@ -3,6 +3,7 @@ use std::fmt::Write;
 
 const RUNTIME: &str = r#"
 #include <cmath>
+#include <cctype>
 #include <cstdint>
 #include <functional>
 #include <iostream>
@@ -36,13 +37,12 @@ struct Value {
 };
 
 static std::string text(const Value& value);
+static double parse_float(const std::string& value);
 static double number(const Value& value) {
     if (auto item = std::get_if<Integer>(&value.data)) return item->convert_to<double>();
     if (auto item = std::get_if<double>(&value.data)) return *item;
     if (auto item = std::get_if<bool>(&value.data)) return *item ? 1.0 : 0.0;
-    if (auto item = std::get_if<std::string>(&value.data)) {
-        try { return std::stod(*item); } catch (...) { throw std::runtime_error("invalid numeric conversion"); }
-    }
+    if (auto item = std::get_if<std::string>(&value.data)) return parse_float(*item);
     throw std::runtime_error("expected a number");
 }
 static bool truthy(const Value& value) {
@@ -61,6 +61,23 @@ static Value logical_or(const Value& left, const std::function<Value()>& right) 
     return truthy(left) ? left : right();
 }
 static Integer integer(const Value& value);
+static std::string trimmed(const std::string& value) {
+    auto first = value.find_first_not_of(" \t\n\r\f\v");
+    if (first == std::string::npos) return "";
+    auto last = value.find_last_not_of(" \t\n\r\f\v");
+    return value.substr(first, last - first + 1);
+}
+static double parse_float(const std::string& value) {
+    auto input = trimmed(value);
+    try {
+        std::size_t parsed = 0;
+        auto result = std::stod(input, &parsed);
+        if (parsed != input.size()) throw std::runtime_error("invalid numeric conversion");
+        return result;
+    } catch (const std::exception&) {
+        throw std::runtime_error("invalid numeric conversion");
+    }
+}
 static std::string text(const Value& value) {
     if (std::holds_alternative<std::monostate>(value.data)) return "None";
     if (auto item = std::get_if<bool>(&value.data)) return *item ? "True" : "False";
@@ -127,10 +144,37 @@ static Value modulo(Value a, Value b) {
     if (divisor == 0) throw std::runtime_error("modulo by zero");
     return Value(dividend % divisor);
 }
-static Value power(Value a, Value b) { return Value(std::pow(number(a), number(b))); }
+static Value power(Value a, Value b) {
+    if (auto base = std::get_if<Integer>(&a.data)) {
+        if (auto exponent = std::get_if<Integer>(&b.data); exponent && *exponent >= 0) {
+            Integer result = 1;
+            Integer factor = *base;
+            Integer remaining = *exponent;
+            while (remaining > 0) {
+                if ((remaining & 1) != 0) result *= factor;
+                remaining >>= 1;
+                if (remaining > 0) factor *= factor;
+            }
+            return Value(std::move(result));
+        }
+    }
+    return Value(std::pow(number(a), number(b)));
+}
 static Value negate(Value value) {
     if (std::holds_alternative<double>(value.data)) return Value(-number(value));
     return Value(-integer(value));
+}
+static Integer integer_from_double(double value) {
+    // Reconstruct the represented integral part without a lossy double-to-integer cast.
+    int exponent = 0;
+    auto fraction = std::frexp(std::fabs(value), &exponent);
+    Integer result = static_cast<std::uint64_t>(std::ldexp(
+        fraction, std::numeric_limits<double>::digits));
+    if (exponent >= std::numeric_limits<double>::digits)
+        result <<= exponent - std::numeric_limits<double>::digits;
+    else
+        result >>= std::numeric_limits<double>::digits - exponent;
+    return std::signbit(value) ? -result : result;
 }
 static bool equal(const Value& a, const Value& b) {
     auto numeric = [](const Value& value) {
@@ -138,8 +182,19 @@ static bool equal(const Value& a, const Value& b) {
     };
     if (std::holds_alternative<Integer>(a.data) && std::holds_alternative<Integer>(b.data))
         return std::get<Integer>(a.data) == std::get<Integer>(b.data);
-    if (numeric(a) && numeric(b))
+    if (numeric(a) && numeric(b)) {
+        if (auto left = std::get_if<Integer>(&a.data)) {
+            if (auto right = std::get_if<double>(&b.data))
+                return std::isfinite(*right) && std::trunc(*right) == *right &&
+                    *left == integer_from_double(*right);
+        }
+        if (auto left = std::get_if<double>(&a.data)) {
+            if (auto right = std::get_if<Integer>(&b.data))
+                return std::isfinite(*left) && std::trunc(*left) == *left &&
+                    integer_from_double(*left) == *right;
+        }
         return number(a) == number(b);
+    }
     if (a.data.index() != b.data.index()) return false;
     if (std::holds_alternative<std::monostate>(a.data)) return true;
     if (auto left = std::get_if<bool>(&a.data)) return *left == std::get<bool>(b.data);
@@ -168,6 +223,23 @@ static bool less(const Value& a, const Value& b) {
     }
     if (auto left = std::get_if<Integer>(&a.data)) {
         if (auto right = std::get_if<Integer>(&b.data)) return *left < *right;
+        if (auto right = std::get_if<double>(&b.data)) {
+            if (std::isnan(*right)) return false;
+            if (*right == std::numeric_limits<double>::infinity()) return true;
+            if (*right == -std::numeric_limits<double>::infinity()) return false;
+            Integer integral = integer_from_double(*right);
+            return *left < integral ||
+                (*right > 0 && std::trunc(*right) != *right && *left == integral);
+        }
+    }
+    if (auto left = std::get_if<double>(&a.data)) {
+        if (auto right = std::get_if<Integer>(&b.data)) {
+            if (std::isnan(*left) || *left == std::numeric_limits<double>::infinity()) return false;
+            if (*left == -std::numeric_limits<double>::infinity()) return true;
+            Integer integral = integer_from_double(*left);
+            return integral < *right ||
+                (*left < 0 && std::trunc(*left) != *left && integral == *right);
+        }
     }
     return number(a) < number(b);
 }
@@ -198,8 +270,15 @@ static Integer integer(const Value& value) {
     if (auto item = std::get_if<Integer>(&value.data)) return *item;
     if (auto item = std::get_if<bool>(&value.data)) return *item ? 1 : 0;
     if (auto item = std::get_if<std::string>(&value.data)) {
-        try { return Integer(*item); }
-        catch (const std::exception&) { return Integer(number(value)); }
+        auto input = trimmed(*item);
+        auto first_digit = !input.empty() && (input[0] == '+' || input[0] == '-') ? 1u : 0u;
+        if (first_digit == input.size())
+            throw std::runtime_error("invalid integer conversion");
+        for (std::size_t i = first_digit; i < input.size(); ++i)
+            if (!std::isdigit(static_cast<unsigned char>(input[i])))
+                throw std::runtime_error("invalid integer conversion");
+        try { return Integer(input); }
+        catch (const std::exception&) { throw std::runtime_error("invalid integer conversion"); }
     }
     return Integer(number(value));
 }
@@ -451,6 +530,7 @@ fn emit_statement(statement: &Stmt, output: &mut String, depth: usize) {
             let _ = writeln!(output, "{indent}}}");
         }
         StmtKind::Function { .. } => {}
+        StmtKind::Import(_) => {}
         StmtKind::Return(value) => {
             let expression = value
                 .as_ref()
@@ -473,7 +553,9 @@ fn expression_code(expression: &Expr) -> String {
         ExprKind::Bool(value) => format!("Value({value})"),
         ExprKind::Number(value) if value.contains('.') => format!("Value({value})"),
         ExprKind::Number(value) => format!("integer_literal({})", cpp_string(value)),
-        ExprKind::String(value) => format!("Value({})", cpp_string(value)),
+        ExprKind::String(value) => {
+            format!("Value(std::string({}, {}))", cpp_string(value), value.len())
+        }
         ExprKind::Name(name) => format!("get(env, {})", cpp_string(name)),
         ExprKind::List(items) => format!(
             "Value::list(std::vector<Value>{{{}}})",
@@ -588,7 +670,7 @@ fn cpp_string(value: &str) -> String {
             '\n' => result.push_str("\\n"),
             '\r' => result.push_str("\\r"),
             '\t' => result.push_str("\\t"),
-            '\0' => result.push_str("\\0"),
+            '\0' => result.push_str("\\000"),
             ch if ch.is_control() => {
                 let _ = write!(result, "\\u{:04x}", ch as u32);
             }

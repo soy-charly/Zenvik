@@ -14,6 +14,8 @@ Strings use single or double quotes and support `\\`, `\"`, `\'`, `\n`, `\r`, `\
 value = 2;
 value += 3;
 
+import "math.zenvik";
+
 if value > 3 {
     print("large");
 } elif value == 3 {
@@ -35,16 +37,16 @@ def twice(number) {
 }
 ```
 
-Supported statements: expression statements, `=`, `+=`, `-=`, `*=`, `/=`, `%=`, `if`/`elif`/`else`, `while`, `for name in iterable`, function definitions, `return`, `break`, and `continue`. Simple statements (expressions, assignments, `return`, `break`, and `continue`) require a trailing `;`; compound statements (blocks and their headers) do not. Functions are top-level, have fixed positional parameters, and may recurse. Imports, exceptions, classes, keyword/default arguments, nested functions, and assignment to an indexed element are not supported.
+Supported statements: `import "path.zenvik";`, expression statements, `=`, `+=`, `-=`, `*=`, `/=`, `%=`, `if`/`elif`/`else`, `while`, `for name in iterable`, function definitions, `return`, `break`, and `continue`. Simple statements (imports, expressions, assignments, `return`, `break`, and `continue`) require a trailing `;`; compound statements (blocks and their headers) do not. Imports are resolved relative to the importing file and include the imported source in the same compilation; each canonical file is included only once. Imports must be top-level. Functions are top-level, have fixed positional parameters, and may recurse. Exceptions, classes, keyword/default arguments, nested functions, and assignment to an indexed element are not supported.
 
 ## Expressions and precedence
 
-From lowest to highest: `or`; `and`; comparisons (`==`, `!=`, `<`, `<=`, `>`, `>=`, `in`); `+`, `-`; `*`, `/`, `%`; `**`; unary `not`, `+`, `-`; calls and indexing. Parentheses group expressions. `and` and `or` short-circuit and return one of their operands.
+From lowest to highest: `or`; `and`; comparisons (`==`, `!=`, `<`, `<=`, `>`, `>=`, `in`); `+`, `-`; `*`, `/`, `%`; `**`; unary `not`, `+`, `-`; calls and indexing. Exponentiation is right-associative and binds more tightly than unary signs. Parentheses group expressions. `and` and `or` short-circuit and return one of their operands.
 
-Lists use `[item, ...]`; dictionaries use `{key: value, ...}`. Indexing and slicing (`value[index]`, `value[start:end:step]`) are supported for strings and lists. Iteration and `in` support strings, lists, and dictionaries; iterating a dictionary yields its keys. `range`, `len`, `print`, `input`, `str`, `int`, `float`, `bool`, and `type` are built-ins.
+Lists use `[item, ...]`; dictionaries use `{key: value, ...}`. Indexing and slicing (`value[index]`, `value[start:end:step]`) are supported for strings and lists. Iteration and `in` support strings, lists, and dictionaries; iterating a dictionary yields its keys. `range`, `len`, `print`, `input`, `str`, `int`, `float`, `bool`, and `type` are built-ins. String arguments to `int` and `float` must contain a complete numeric value (surrounding whitespace is allowed).
 
 ## Runtime and errors
 
-The runtime is embedded in each generated native program, uses Boost.Multiprecision for arbitrary-precision integers, and uses C++ standard-library values with shared ownership for collection storage. Collection literals, concatenation, indexing, slicing, membership, conversions, and iteration are implemented. List/dictionary mutation methods and a module system are not.
+The runtime is embedded in each generated native program, uses Boost.Multiprecision for arbitrary-precision integers, and uses C++ standard-library values with shared ownership for collection storage. Collection literals, concatenation, indexing, slicing, membership, conversions, and iteration are implemented. Imports are source inclusion, not separately compiled modules; list/dictionary mutation methods and a module system with namespaces are not implemented.
 
 Lexical, parse, and semantic errors report the source path, line, and column. Runtime errors are printed to standard error and exit with status 1. Numeric and collection behavior is intentionally a small subset; do not rely on exact Python coercion, formatting, Unicode indexing, or overflow behavior.

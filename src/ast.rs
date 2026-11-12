@@ -53,6 +53,7 @@ pub struct Stmt {
 
 #[derive(Clone, Debug)]
 pub enum StmtKind {
+    Import(String),
     Expr(Expr),
     Assign {
         name: String,

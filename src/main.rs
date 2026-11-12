@@ -4,7 +4,7 @@ mod lexer;
 mod parser;
 mod sema;
 
-use lexer::TokenKind;
+use std::collections::HashSet;
 use std::env;
 use std::ffi::OsString;
 use std::fs;
@@ -47,32 +47,12 @@ fn run(arguments: Vec<OsString>) -> Result<i32, String> {
         return Ok(0);
     }
     let options = parse_arguments(arguments)?;
-    let mut tokens = Vec::new();
+    let mut loaded = HashSet::new();
+    let mut active = Vec::new();
+    let mut statements = Vec::new();
     for path in &options.inputs {
-        let source = fs::read_to_string(path)
-            .map_err(|error| format!("cannot read {}: {error}", path.display()))?;
-        let file_name = path.display().to_string();
-        let mut file_tokens = lexer::lex(&source, &file_name)?;
-        let eof = file_tokens.pop().expect("lexer always emits an EOF token");
-        file_tokens.push(lexer::Token {
-            kind: TokenKind::Newline,
-            position: eof.position.clone(),
-        });
-        tokens.extend(file_tokens);
+        statements.extend(load_source(path, None, &mut loaded, &mut active)?);
     }
-    let position = tokens
-        .last()
-        .map(|token| token.position.clone())
-        .unwrap_or_else(|| ast::Position {
-            file: "<input>".into(),
-            line: 1,
-            column: 1,
-        });
-    tokens.push(lexer::Token {
-        kind: TokenKind::Eof,
-        position,
-    });
-    let statements = parser::parse(tokens)?;
     sema::check(&statements)?;
     let generated = codegen::generate(&statements);
     if options.mode == OutputMode::SyntaxOnly {
@@ -83,6 +63,80 @@ fn run(arguments: Vec<OsString>) -> Result<i32, String> {
         .clone()
         .unwrap_or_else(|| default_output(&options.inputs[0], options.mode));
     compile(&generated, Some(&output), &options)
+}
+
+fn load_source(
+    path: &Path,
+    import_site: Option<(&ast::Position, &str)>,
+    loaded: &mut HashSet<PathBuf>,
+    active: &mut Vec<PathBuf>,
+) -> Result<Vec<ast::Stmt>, String> {
+    let canonical = fs::canonicalize(path).map_err(|error| {
+        if let Some((position, imported)) = import_site {
+            format!(
+                "{}:{}:{}: error: cannot import `{imported}`: {error}",
+                position.file, position.line, position.column
+            )
+        } else {
+            format!("cannot read {}: {error}", path.display())
+        }
+    })?;
+    if let Some(start) = active.iter().position(|current| current == &canonical) {
+        let cycle = active[start..]
+            .iter()
+            .chain(std::iter::once(&canonical))
+            .map(|path| path.display().to_string())
+            .collect::<Vec<_>>()
+            .join(" -> ");
+        let (position, imported) =
+            import_site.expect("only imported files can form an active cycle");
+        return Err(format!(
+            "{}:{}:{}: error: import cycle while importing `{imported}`: {cycle}",
+            position.file, position.line, position.column
+        ));
+    }
+    if !loaded.insert(canonical.clone()) {
+        return Ok(Vec::new());
+    }
+
+    active.push(canonical.clone());
+    let result = (|| {
+        let source = fs::read_to_string(path).map_err(|error| {
+            if let Some((position, imported)) = import_site {
+                format!(
+                    "{}:{}:{}: error: cannot read import `{imported}`: {error}",
+                    position.file, position.line, position.column
+                )
+            } else {
+                format!("cannot read {}: {error}", path.display())
+            }
+        })?;
+        let tokens = lexer::lex(&source, &path.display().to_string())?;
+        let statements = parser::parse(tokens)?;
+        let mut expanded = Vec::new();
+        for statement in statements {
+            if let ast::StmtKind::Import(imported) = &statement.kind {
+                let imported_path = path
+                    .parent()
+                    .unwrap_or_else(|| Path::new("."))
+                    .join(imported);
+                expanded.extend(load_source(
+                    &imported_path,
+                    Some((&statement.position, imported)),
+                    loaded,
+                    active,
+                )?);
+            } else {
+                expanded.push(statement);
+            }
+        }
+        Ok(expanded)
+    })();
+    active.pop();
+    if result.is_err() {
+        loaded.remove(&canonical);
+    }
+    result
 }
 
 fn parse_arguments(arguments: Vec<OsString>) -> Result<Options, String> {
@@ -252,7 +306,8 @@ Options:\n\
   --help           Show this help\n\
   --version        Show compiler version\n\
 \n\
-Set ZENVIK_CXX to select the C++20 compiler used by the native backend."
+  Source files can import other files with `import \"relative/path.zenvik\";`.\n\
+  Set ZENVIK_CXX to select the C++20 compiler used by the native backend."
     );
 }
 
@@ -289,7 +344,7 @@ mod tests {
         let tokens = lexer::lex("count += 1\n", "test.zenvik").unwrap();
         assert!(matches!(
             &tokens[1].kind,
-            TokenKind::Operator(operator) if operator == "+="
+            lexer::TokenKind::Operator(operator) if operator == "+="
         ));
     }
 }

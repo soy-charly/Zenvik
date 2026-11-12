@@ -12,6 +12,8 @@ zenvik [options] file.zenvik [file.zenvik ...]
 - `-v`: show concise backend invocation details.
 - `--help`, `--version`: print help or version.
 
-`-c`, `-S`, and `-fsyntax-only` are mutually exclusive. `-o` is not valid with `-fsyntax-only`. Multiple source files are parsed and compiled together. Paths are passed as separate process arguments, so spaces are supported. Set `ZENVIK_CXX` to select the C++20 compiler; the default is `clang++`.
+`-c`, `-S`, and `-fsyntax-only` are mutually exclusive. `-o` is not valid with `-fsyntax-only`. Multiple source files are parsed and compiled together. A source file may also import another file with `import "relative/path.zenvik";`; imported paths are relative to the file containing the import, and each file is included only once. Paths are passed as separate process arguments, so spaces are supported. Set `ZENVIK_CXX` to select the C++20 compiler; the default is `clang++`.
+
+For example, `zenvik examples/modules/main.zenvik -o out/modules` compiles the main file and its relative import.
 
 The Zenvik front end uses exit code 2 for invalid input or source diagnostics, and propagates the native backend's exit status for backend errors.
