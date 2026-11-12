@@ -53,7 +53,7 @@ pub struct Stmt {
 
 #[derive(Clone, Debug)]
 pub enum StmtKind {
-    Import(String),
+    Import(ImportTarget),
     Expr(Expr),
     Assign {
         name: String,
@@ -81,4 +81,10 @@ pub enum StmtKind {
     Return(Option<Expr>),
     Break,
     Continue,
+}
+
+#[derive(Clone, Debug)]
+pub enum ImportTarget {
+    Path(String),
+    Library(String),
 }

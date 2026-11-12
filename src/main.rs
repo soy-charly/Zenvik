@@ -24,6 +24,7 @@ enum OutputMode {
 
 struct Options {
     inputs: Vec<PathBuf>,
+    library_paths: Vec<PathBuf>,
     output: Option<PathBuf>,
     mode: OutputMode,
     optimization: Option<String>,
@@ -47,11 +48,18 @@ fn run(arguments: Vec<OsString>) -> Result<i32, String> {
         return Ok(0);
     }
     let options = parse_arguments(arguments)?;
+    let library_paths = library_search_paths(&options);
     let mut loaded = HashSet::new();
     let mut active = Vec::new();
     let mut statements = Vec::new();
     for path in &options.inputs {
-        statements.extend(load_source(path, None, &mut loaded, &mut active)?);
+        statements.extend(load_source(
+            path,
+            None,
+            &library_paths,
+            &mut loaded,
+            &mut active,
+        )?);
     }
     sema::check(&statements)?;
     let generated = codegen::generate(&statements);
@@ -68,6 +76,7 @@ fn run(arguments: Vec<OsString>) -> Result<i32, String> {
 fn load_source(
     path: &Path,
     import_site: Option<(&ast::Position, &str)>,
+    library_paths: &[PathBuf],
     loaded: &mut HashSet<PathBuf>,
     active: &mut Vec<PathBuf>,
 ) -> Result<Vec<ast::Stmt>, String> {
@@ -115,14 +124,24 @@ fn load_source(
         let statements = parser::parse(tokens)?;
         let mut expanded = Vec::new();
         for statement in statements {
-            if let ast::StmtKind::Import(imported) = &statement.kind {
-                let imported_path = path
-                    .parent()
-                    .unwrap_or_else(|| Path::new("."))
-                    .join(imported);
+            if let ast::StmtKind::Import(target) = &statement.kind {
+                let imported = match target {
+                    ast::ImportTarget::Path(imported) => path
+                        .parent()
+                        .unwrap_or_else(|| Path::new("."))
+                        .join(imported),
+                    ast::ImportTarget::Library(name) => {
+                        resolve_library(name, library_paths, &statement.position)?
+                    }
+                };
+                let display_name = match target {
+                    ast::ImportTarget::Path(imported) => imported.as_str(),
+                    ast::ImportTarget::Library(name) => name.as_str(),
+                };
                 expanded.extend(load_source(
-                    &imported_path,
-                    Some((&statement.position, imported)),
+                    &imported,
+                    Some((&statement.position, display_name)),
+                    library_paths,
                     loaded,
                     active,
                 )?);
@@ -139,8 +158,41 @@ fn load_source(
     result
 }
 
+fn resolve_library(
+    name: &str,
+    library_paths: &[PathBuf],
+    position: &ast::Position,
+) -> Result<PathBuf, String> {
+    for directory in library_paths {
+        let candidate = directory.join(format!("{name}.zenvik"));
+        if candidate.is_file() {
+            return Ok(candidate);
+        }
+    }
+    let searched = library_paths
+        .iter()
+        .map(|path| path.display().to_string())
+        .collect::<Vec<_>>()
+        .join(", ");
+    Err(format!(
+        "{}:{}:{}: error: cannot find library `{name}`; searched: {searched}",
+        position.file, position.line, position.column
+    ))
+}
+
+fn library_search_paths(options: &Options) -> Vec<PathBuf> {
+    let mut paths = options.library_paths.clone();
+    if let Some(environment_paths) = env::var_os("ZENVIK_LIB_DIR") {
+        paths.extend(env::split_paths(&environment_paths));
+    }
+    paths.push(PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("libraries"));
+    paths.push(PathBuf::from("/usr/local/share/zenvik/libraries"));
+    paths
+}
+
 fn parse_arguments(arguments: Vec<OsString>) -> Result<Options, String> {
     let mut inputs = Vec::new();
+    let mut library_paths = Vec::new();
     let mut output = None;
     let mut mode = OutputMode::Executable;
     let mut mode_was_set = false;
@@ -166,6 +218,13 @@ fn parse_arguments(arguments: Vec<OsString>) -> Result<Options, String> {
                 if output.replace(PathBuf::from(path)).is_some() {
                     return Err("`-o` may only be specified once".into());
                 }
+            }
+            "-L" | "--library-path" => {
+                index += 1;
+                let path = arguments
+                    .get(index)
+                    .ok_or_else(|| format!("`{argument}` requires a directory"))?;
+                library_paths.push(PathBuf::from(path));
             }
             "-c" | "-S" | "-fsyntax-only" => {
                 if mode_was_set {
@@ -199,6 +258,7 @@ fn parse_arguments(arguments: Vec<OsString>) -> Result<Options, String> {
     }
     Ok(Options {
         inputs,
+        library_paths,
         output,
         mode,
         optimization,
@@ -298,6 +358,7 @@ Usage: zenvik [options] file.zenvik [file.zenvik ...]\n\
 \n\
 Options:\n\
   -o PATH          Write output to PATH\n\
+  -L DIR           Add a directory to the library search path\n\
   -c               Compile to a native object file\n\
   -S               Compile to assembly\n\
   -fsyntax-only    Check syntax and semantics without generating output\n\
@@ -306,7 +367,8 @@ Options:\n\
   --help           Show this help\n\
   --version        Show compiler version\n\
 \n\
-  Source files can import other files with `import \"relative/path.zenvik\";`.\n\
+    Use `import library_name;` for libraries in libraries/ or `-L` paths.\n\
+    Use `import \"relative/path.zenvik\";` for project source files.\n\
   Set ZENVIK_CXX to select the C++20 compiler used by the native backend."
     );
 }

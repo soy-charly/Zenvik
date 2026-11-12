@@ -4,7 +4,7 @@ Zenvik's compiler is implemented in Rust with no Rust crate dependencies:
 
 1. The lexer records file/line/column positions and tokenizes delimiters, literals, names, operators, newlines, and semicolons.
 2. A recursive-descent/Pratt parser builds a typed Rust AST.
-3. The CLI resolves top-level source imports relative to each importing file, loads each canonical source path once, and combines imported and command-line sources.
+3. The CLI resolves top-level source imports relative to each importing file, resolves named libraries from configured and repository library paths, loads each canonical source path once, and combines imported and command-line sources.
 4. Semantic checks validate function declarations/calls and control-flow placement.
 5. The backend emits C++20 source containing the program and a small embedded runtime.
 6. The CLI invokes the selected host C++ compiler (default `clang++`) to link a native executable, object file, or assembly.
@@ -13,4 +13,4 @@ This C++ backend was selected over a custom machine-code backend or binding dire
 
 Values are dynamically typed. The embedded runtime represents them with a tagged variant; lists and dictionaries are reference-counted C++ containers. There is no static type checker, garbage collector, closure model, or stable cross-platform ABI yet. Calls between functions compiled in one invocation are emitted as native functions.
 
-The backend compiles command-line inputs and imported files into a single translation unit. Imports are source inclusion without namespaces or separate compilation/linking; standalone object-file linking is not implemented.
+The backend compiles command-line inputs and imported files into a single translation unit. Named libraries are source files stored in `libraries/` and are bundled with the repository installer; `-L` and `ZENVIK_LIB_DIR` can add external library directories. Imports are source inclusion without namespaces or separate compilation/linking; standalone object-file linking is not implemented.

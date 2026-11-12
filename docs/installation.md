@@ -21,7 +21,9 @@ zenvik examples/hello.zenvik -o out/hello
 
 To select another C++ compiler, set `ZENVIK_CXX` for the compiler invocation, for example `ZENVIK_CXX=g++ zenvik hello.zenvik`.
 
-`./scripts/install.sh` builds the release compiler and installs it to `/usr/local/bin/zenvik`, using `sudo` only for the installation step when needed. Run it from any directory; it finds the repository relative to the script. During development, use `cargo run -- examples/hello.zenvik` rather than assuming a global install.
+`./scripts/install.sh` builds the release compiler, installs it to `/usr/local/bin/zenvik`, and copies repository libraries to `/usr/local/share/zenvik/libraries`, using `sudo` only for installation when needed. Run it from any directory; it finds the repository relative to the script. During development, use `cargo run -- examples/hello.zenvik` rather than assuming a global install.
+
+To add a repository library, place a `.zenvik` file in `libraries/` and import its filename without the extension, for example `import math;`. For a custom library directory, pass `-L PATH` or set `ZENVIK_LIB_DIR`.
 
 ## Windows
 

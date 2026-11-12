@@ -30,6 +30,8 @@ cargo test
 ./out/factorial
 ./target/release/zenvik examples/modules/main.zenvik -o out/modules
 ./out/modules
+./target/release/zenvik examples/standard-library.zenvik -o out/standard-library
+./out/standard-library
 ```
 
 To install the release binary to `/usr/local/bin/zenvik`, run:
@@ -53,6 +55,8 @@ On Windows, install the prerequisites and install Zenvik with `cargo install --p
 See the [CLI reference](docs/cli-reference.md) for available options and [examples/](examples/) for more programs.
 
 Source files can import other `.zenvik` files with `import "relative/path.zenvik";`. See [the module example](examples/modules/main.zenvik) and its [imported file](examples/modules/greetings.zenvik).
+
+Repository libraries live in [libraries/](libraries/). Import one by filename without its extension (for example, `import math;`). Add custom search directories with `-L PATH` or `ZENVIK_LIB_DIR`.
 
 ## Example
 

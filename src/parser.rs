@@ -26,12 +26,19 @@ impl Parser {
         if self.keyword("import") {
             self.advance();
             let token = self.advance().clone();
-            let TokenKind::String(path) = token.kind else {
-                return Err(self.error_at(token.position, "expected a quoted import path".into()));
+            let target = match token.kind {
+                TokenKind::String(path) => crate::ast::ImportTarget::Path(path),
+                TokenKind::Name(name) => crate::ast::ImportTarget::Library(name),
+                _ => {
+                    return Err(self.error_at(
+                        token.position,
+                        "expected a library name or quoted import path".into(),
+                    ));
+                }
             };
             self.finish_simple_statement()?;
             return Ok(Stmt {
-                kind: StmtKind::Import(path),
+                kind: StmtKind::Import(target),
                 position,
             });
         }

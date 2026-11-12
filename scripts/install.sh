@@ -4,6 +4,7 @@ set -euo pipefail
 repo_root=$(CDPATH= cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)
 binary="$repo_root/target/release/zenvik"
 destination=/usr/local/bin/zenvik
+library_destination=/usr/local/share/zenvik/libraries
 
 usage() {
     printf 'Usage: %s\n' "$0"
@@ -38,6 +39,8 @@ printf 'Installing Zenvik to %s...\n' "$destination"
 
 if [[ $(id -u) -eq 0 ]]; then
     install -D -m 755 "$binary" "$destination"
+    install -d "$library_destination"
+    cp -R "$repo_root/libraries/." "$library_destination/"
 else
     if ! command -v sudo >/dev/null 2>&1; then
         printf 'install.sh: sudo is required to install into /usr/local/bin.\n' >&2
@@ -46,6 +49,8 @@ else
     fi
 
     sudo install -D -m 755 "$binary" "$destination"
+    sudo install -d "$library_destination"
+    sudo cp -R "$repo_root/libraries/." "$library_destination/"
 fi
 
-printf 'Installed Zenvik. Verify with: zenvik --version\n'
+printf 'Installed Zenvik and libraries to %s. Verify with: zenvik --version\n' "$destination"

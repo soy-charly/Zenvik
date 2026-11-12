@@ -14,7 +14,7 @@ Strings use single or double quotes and support `\\`, `\"`, `\'`, `\n`, `\r`, `\
 value = 2;
 value += 3;
 
-import "math.zenvik";
+import math;
 
 if value > 3 {
     print("large");
@@ -37,7 +37,7 @@ def twice(number) {
 }
 ```
 
-Supported statements: `import "path.zenvik";`, expression statements, `=`, `+=`, `-=`, `*=`, `/=`, `%=`, `if`/`elif`/`else`, `while`, `for name in iterable`, function definitions, `return`, `break`, and `continue`. Simple statements (imports, expressions, assignments, `return`, `break`, and `continue`) require a trailing `;`; compound statements (blocks and their headers) do not. Imports are resolved relative to the importing file and include the imported source in the same compilation; each canonical file is included only once. Imports must be top-level. Functions are top-level, have fixed positional parameters, and may recurse. Exceptions, classes, keyword/default arguments, nested functions, and assignment to an indexed element are not supported.
+Supported statements: `import library_name;`, `import "relative/path.zenvik";`, expression statements, `=`, `+=`, `-=`, `*=`, `/=`, `%=`, `if`/`elif`/`else`, `while`, `for name in iterable`, function definitions, `return`, `break`, and `continue`. Simple statements (imports, expressions, assignments, `return`, `break`, and `continue`) require a trailing `;`; compound statements (blocks and their headers) do not. Quoted paths resolve relative to the importing file. Named libraries resolve as `<library-name>.zenvik` in directories supplied with `-L`, directories in `ZENVIK_LIB_DIR`, the repository's `libraries/` directory, or the installed library directory, in that order. All imported source joins the same compilation, and each canonical file is included once. Imports must be top-level. Functions are top-level, have fixed positional parameters, and may recurse. Exceptions, classes, keyword/default arguments, nested functions, and assignment to an indexed element are not supported.
 
 ## Expressions and precedence
 
