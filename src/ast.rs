@@ -52,11 +52,18 @@ pub struct Stmt {
 }
 
 #[derive(Clone, Debug)]
+pub struct Parameter {
+    pub name: String,
+    pub type_name: Option<String>,
+}
+
+#[derive(Clone, Debug)]
 pub enum StmtKind {
     Import(ImportTarget),
     Expr(Expr),
     Assign {
         name: String,
+        type_name: Option<String>,
         operator: String,
         value: Expr,
     },
@@ -75,7 +82,8 @@ pub enum StmtKind {
     },
     Function {
         name: String,
-        parameters: Vec<String>,
+        parameters: Vec<Parameter>,
+        return_type: Option<String>,
         body: Vec<Stmt>,
     },
     Return(Option<Expr>),

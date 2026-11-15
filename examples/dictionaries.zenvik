@@ -1,3 +1,4 @@
+# Dictionary keys and values are still dynamically typed.
 people = {"name": "Ada", "language": "Zenvik"};
 for key in people {
     print(key, people[key]);

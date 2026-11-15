@@ -1,4 +1,4 @@
-greeting = "hello";
-name = "Zenvik";
+string greeting = "hello";
+string name = "Zenvik";
 print(greeting + ", " + name + "!");
 print(len(name));

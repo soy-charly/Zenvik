@@ -1,4 +1,4 @@
-def twice(number) {
+int twice(int number) {
     return number * 2;
 }
 

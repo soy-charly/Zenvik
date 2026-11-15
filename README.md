@@ -6,6 +6,8 @@ Zenvik is a small, brace-delimited, Python-inspired compiled language. Its compi
 
 Zenvik is an early-stage project, and its language and runtime may change. It is not Python-compatible. The supported syntax, runtime model, build requirements, and current limitations are described in the [language specification](docs/language-spec.md), [architecture notes](docs/architecture.md), and [installation guide](docs/installation.md).
 
+Scalar variables can use C/C++-style types (`int count = 3;`, `string name = "Zenvik";`), and scalar assignments without a declaration have their types inferred. Functions can use typed C-style signatures while the existing `def` syntax remains available. Run `zenvik examples/types.zenvik` to see declarations, inferred variables, numeric conversions, and typed functions together.
+
 ## Requirements
 
 - Rust and Cargo (edition 2024).
@@ -61,7 +63,7 @@ Repository libraries live in [libraries/](libraries/). Import one by filename wi
 ## Example
 
 ```zenvik
-def factorial(n) {
+int factorial(int n) {
     if n <= 1 {
         return 1;
     }

@@ -1,4 +1,4 @@
-use crate::ast::{Expr, ExprKind, Position, Stmt, StmtKind};
+use crate::ast::{Expr, ExprKind, Parameter, Position, Stmt, StmtKind};
 use crate::lexer::{Token, TokenKind};
 
 pub fn parse(tokens: Vec<Token>) -> Result<Vec<Stmt>, String> {
@@ -44,6 +44,12 @@ impl Parser {
         }
         if self.keyword("def") {
             return self.function(position);
+        }
+        if self.typed_function_start() {
+            return self.typed_function(position);
+        }
+        if self.typed_assignment_start() {
+            return self.typed_assignment(position);
         }
         if self.keyword("if") {
             return self.if_statement(position);
@@ -114,6 +120,7 @@ impl Parser {
             return Ok(Stmt {
                 kind: StmtKind::Assign {
                     name,
+                    type_name: None,
                     operator,
                     value,
                 },
@@ -135,7 +142,11 @@ impl Parser {
         let mut parameters = Vec::new();
         if !self.at(&TokenKind::RightParen) {
             loop {
-                parameters.push(self.expect_name("expected a parameter name")?);
+                let name = self.expect_name("expected a parameter name")?;
+                parameters.push(Parameter {
+                    name,
+                    type_name: None,
+                });
                 if !self.take(&TokenKind::Comma) {
                     break;
                 }
@@ -150,7 +161,96 @@ impl Parser {
             kind: StmtKind::Function {
                 name,
                 parameters,
+                return_type: None,
                 body,
+            },
+            position,
+        })
+    }
+
+    fn typed_function_start(&self) -> bool {
+        let Some((_, end)) = parse_type_specifier(&self.tokens, self.index) else {
+            return false;
+        };
+        matches!(
+            self.tokens.get(end).map(|token| &token.kind),
+            Some(TokenKind::Name(_))
+        ) && matches!(
+            self.tokens.get(end + 1).map(|token| &token.kind),
+            Some(TokenKind::LeftParen)
+        )
+    }
+
+    fn typed_assignment_start(&self) -> bool {
+        let Some((_, end)) = parse_type_specifier(&self.tokens, self.index) else {
+            return false;
+        };
+        matches!(
+            self.tokens.get(end).map(|token| &token.kind),
+            Some(TokenKind::Name(_))
+        ) && matches!(
+            self.tokens.get(end + 1).map(|token| &token.kind),
+            Some(TokenKind::Operator(operator)) if operator == "="
+        )
+    }
+
+    fn typed_function(&mut self, position: Position) -> Result<Stmt, String> {
+        let (return_type, end) = parse_type_specifier(&self.tokens, self.index)
+            .expect("typed function start guarantees a return type");
+        self.index = end;
+        let name = self.expect_name("expected a function name")?;
+        self.expect(&TokenKind::LeftParen, "expected `(` after function name")?;
+        let mut parameters = Vec::new();
+        if self.keyword("void") && self.peek(1).kind == TokenKind::RightParen {
+            self.advance();
+        } else if !self.at(&TokenKind::RightParen) {
+            loop {
+                let (type_name, end) = parse_type_specifier(&self.tokens, self.index)
+                    .ok_or_else(|| self.error("expected a parameter type".into()))?;
+                self.index = end;
+                let name = self.expect_name("expected a parameter name")?;
+                parameters.push(Parameter {
+                    name,
+                    type_name: Some(type_name),
+                });
+                if !self.take(&TokenKind::Comma) {
+                    break;
+                }
+                if self.at(&TokenKind::RightParen) {
+                    break;
+                }
+            }
+        }
+        self.expect(&TokenKind::RightParen, "expected `)` after parameters")?;
+        let body = self.block()?;
+        Ok(Stmt {
+            kind: StmtKind::Function {
+                name,
+                parameters,
+                return_type: Some(return_type),
+                body,
+            },
+            position,
+        })
+    }
+
+    fn typed_assignment(&mut self, position: Position) -> Result<Stmt, String> {
+        let (type_name, end) =
+            parse_type_specifier(&self.tokens, self.index).expect("typed assignment start");
+        self.index = end;
+        let name = self.expect_name("expected a variable name")?;
+        self.expect(
+            &TokenKind::Operator("=".into()),
+            "expected `=` after variable name",
+        )?;
+        let value = self.expression(0)?;
+        self.finish_simple_statement()?;
+        Ok(Stmt {
+            kind: StmtKind::Assign {
+                name,
+                type_name: Some(type_name),
+                operator: "=".into(),
+                value,
             },
             position,
         })
@@ -496,4 +596,114 @@ impl Parser {
             position.file, position.line, position.column, message
         )
     }
+}
+
+fn parse_type_specifier(tokens: &[Token], start: usize) -> Option<(String, usize)> {
+    if matches!(tokens.get(start).map(|token| &token.kind), Some(TokenKind::Name(name)) if name == "std")
+        && matches!(
+            tokens.get(start + 1).map(|token| &token.kind),
+            Some(TokenKind::Colon)
+        )
+        && matches!(
+            tokens.get(start + 2).map(|token| &token.kind),
+            Some(TokenKind::Colon)
+        )
+        && matches!(
+            tokens.get(start + 3).map(|token| &token.kind),
+            Some(TokenKind::Name(_))
+        )
+    {
+        if let Some(type_name) = tokens.get(start + 3).and_then(|token| {
+            let TokenKind::Name(name) = &token.kind else {
+                return None;
+            };
+            normalize_type(&[name])
+        }) {
+            return Some((type_name, start + 4));
+        }
+    }
+
+    let mut words = Vec::new();
+    for token in tokens.iter().skip(start).take(4) {
+        let TokenKind::Name(word) = &token.kind else {
+            break;
+        };
+        words.push(word.as_str());
+    }
+
+    for length in (1..=words.len()).rev() {
+        if let Some(type_name) = normalize_type(&words[..length]) {
+            return Some((type_name, start + length));
+        }
+    }
+    None
+}
+
+fn normalize_type(words: &[&str]) -> Option<String> {
+    let alias = words.join(" ");
+    if matches!(
+        alias.as_str(),
+        "int8_t"
+            | "uint8_t"
+            | "int16_t"
+            | "uint16_t"
+            | "int32_t"
+            | "uint32_t"
+            | "int64_t"
+            | "uint64_t"
+            | "intptr_t"
+            | "uintptr_t"
+            | "intmax_t"
+            | "uintmax_t"
+            | "size_t"
+            | "ptrdiff_t"
+            | "string"
+            | "void"
+            | "bool"
+            | "wchar_t"
+            | "char8_t"
+            | "char16_t"
+            | "char32_t"
+            | "float"
+    ) {
+        return Some(alias);
+    }
+
+    let mut sign = None;
+    let mut short = false;
+    let mut longs = 0;
+    let mut base = None;
+    for word in words {
+        match *word {
+            "signed" | "unsigned" if sign.is_none() => sign = Some(*word),
+            "short" if !short && longs == 0 => short = true,
+            "long" if longs < 2 && !short => longs += 1,
+            "int" if base.is_none() => base = Some("int"),
+            "char" if base.is_none() => base = Some("char"),
+            "double" if base.is_none() => base = Some("double"),
+            _ => return None,
+        }
+    }
+
+    let base = base.unwrap_or("int");
+    let type_name = match (base, short, longs, sign) {
+        ("int", true, 0, None) => "short int",
+        ("int", true, 0, Some("signed")) => "short int",
+        ("int", true, 0, Some("unsigned")) => "unsigned short int",
+        ("int", false, 1, None) => "long int",
+        ("int", false, 1, Some("signed")) => "long int",
+        ("int", false, 1, Some("unsigned")) => "unsigned long int",
+        ("int", false, 2, None) => "long long int",
+        ("int", false, 2, Some("signed")) => "long long int",
+        ("int", false, 2, Some("unsigned")) => "unsigned long long int",
+        ("int", false, 0, None | Some("signed")) => "int",
+        ("int", false, 0, Some("unsigned")) => "unsigned int",
+        ("char", false, 0, None) => "char",
+        ("char", false, 0, Some("signed")) => "signed char",
+        ("char", false, 0, Some("unsigned")) => "unsigned char",
+        ("double", false, 0, None | Some("signed")) => "double",
+        ("double", false, 1, None | Some("signed")) => "long double",
+        _ => return None,
+    };
+    Some(type_name.into())
 }

@@ -4,7 +4,19 @@ Zenvik is Python-inspired, not Python-compatible. `.zenvik` is the conventional 
 
 ## Values and names
 
-Values are dynamically represented as `None`, booleans (`True`, `False`), signed integers, floating-point numbers, strings, lists, and dictionaries with stringified keys. Names use ASCII letters or `_` initially, followed by letters, digits, or `_`. Variables are introduced by assignment and live in the current function's environment. Functions have their own local environment; global-variable lookup and closures are not implemented.
+Values include `None`, booleans (`True`, `False`), signed integers, floating-point numbers, strings, lists, and dictionaries with stringified keys. Names use ASCII letters or `_` initially, followed by letters, digits, or `_`. Variables are introduced by assignment and live in the current function's environment. Functions have their own local environment; global-variable lookup and closures are not implemented.
+
+Scalar types are inferred on first assignment and checked on later assignments. Numeric types may convert to other numeric types; incompatible assignments are compile-time errors. Lists and dictionaries remain dynamically represented collections. Explicit C/C++-style declarations require an initializer:
+
+```zenvik
+int age = 20;
+double temperature = 18.5;
+bool enabled = True;
+char initial = "A";
+string greeting = "hello";
+```
+
+Supported scalar types are `bool`; `char`, `signed char`, `unsigned char`, `wchar_t`, `char8_t`, `char16_t`, and `char32_t`; `short`, `int`, `long`, and `long long` (with signed/unsigned variants); `float`, `double`, and `long double`; the fixed-width integer names `int8_t` through `int64_t` and `uint8_t` through `uint64_t`; `intptr_t`, `uintptr_t`, `intmax_t`, `uintmax_t`, `size_t`, `ptrdiff_t`; and `string`. Use the type names directly without a `std::` prefix. `void` is only valid as a function return type. Integer declarations enforce the target C++ type's range. Character values use one-byte strings, and floating-point values use the runtime's `double` representation. Pointers, references, arrays, structs, classes, and user-defined types are not supported.
 
 Strings use single or double quotes and support `\\`, `\"`, `\'`, `\n`, `\r`, `\t`, and `\0`. Triple-quoted and interpolated strings are not implemented.
 
@@ -13,6 +25,8 @@ Strings use single or double quotes and support `\\`, `\"`, `\'`, `\n`, `\r`, `\
 ```zenvik
 value = 2;
 value += 3;
+int limit = 10;
+limit -= 1;
 
 import math;
 
@@ -35,9 +49,17 @@ for item in range(3) {
 def twice(number) {
     return number * 2;
 }
+
+int sum(int left, int right) {
+    return left + right;
+}
 ```
 
+<<<<<<< HEAD
 Supported statements: `import library_name;`, `import "relative/path.zenvik";`, expression statements, `=`, `+=`, `-=`, `*=`, `/=`, `%=`, `if`/`elif`/`else`, `while`, `for name in iterable`, function definitions, `return`, `break`, and `continue`. Simple statements (imports, expressions, assignments, `return`, `break`, and `continue`) require a trailing `;`; compound statements (blocks and their headers) do not. Quoted paths resolve relative to the importing file. Named libraries resolve as `<library-name>.zenvik` in directories supplied with `-L`, directories in `ZENVIK_LIB_DIR`, the repository's `libraries/` directory, or the installed library directory, in that order. All imported source joins the same compilation, and each canonical file is included once. Imports must be top-level. Functions are top-level, have fixed positional parameters, and may recurse. Exceptions, classes, keyword/default arguments, nested functions, and assignment to an indexed element are not supported.
+=======
+Supported statements: expression statements, inferred or typed assignments, `=`, `+=`, `-=`, `*=`, `/=`, `%=`, `if`/`elif`/`else`, `while`, `for name in iterable`, function definitions, `return`, `break`, and `continue`. C-style function definitions specify a return type and typed parameters (`int sum(int left, int right)`); `void` functions may use `return;`. The existing `def` syntax remains supported, with dynamically typed parameters and return values. Simple statements (expressions, assignments, `return`, `break`, and `continue`) require a trailing `;`; compound statements (blocks and their headers) do not. Functions are top-level, have fixed positional parameters, and may recurse. Imports, exceptions, classes, keyword/default arguments, nested functions, and assignment to an indexed element are not supported.
+>>>>>>> cfc282f (added standard libraries)
 
 ## Expressions and precedence
 

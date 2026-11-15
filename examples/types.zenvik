@@ -1,0 +1,31 @@
+# Scalar declarations use C/C++-style types.
+int count = 3;
+unsigned int attempts = 2;
+double price = 4.5;
+bool available = True;
+char initial = "Z";
+string language = "Zenvik";
+
+# Numeric values can be converted when assigned to another numeric type.
+int whole_price = price;
+
+# An unannotated variable infers its type from its first assignment.
+inferred_total = count + attempts;
+inferred_total = inferred_total + 1;
+
+double average(int total, int items) {
+    return total / items;
+}
+
+void describe(string name, bool enabled) {
+    if enabled {
+        print(name, "is ready");
+    } else {
+        print(name, "is unavailable");
+    }
+    return;
+}
+
+print(language, initial, whole_price, inferred_total);
+print("average:", average(inferred_total, count));
+describe(language, available);
